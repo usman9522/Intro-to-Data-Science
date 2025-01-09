@@ -14,7 +14,7 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout
 import datetime as dt
 import yfinance as yf
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
+import os
 file_path = os.path.join(os.path.dirname(__file__), "BTC.csv")
 btc_data = pd.read_csv(file_path)
 # Load dataset
