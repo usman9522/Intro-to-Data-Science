@@ -323,6 +323,14 @@ if options == 'Actual Tomorrow\'s Prediction':
     df.sort_values('timestamp', inplace=True)
     df.reset_index(drop=True, inplace=True)
 
+    # Ensure all columns are 1-dimensional
+    df['close'] = df['close'].squeeze()
+    df['open'] = df['open'].squeeze()
+    df['high'] = df['high'].squeeze()
+    df['low'] = df['low'].squeeze()
+    df['volume'] = df['volume'].squeeze()
+
+
     ###########################################
     # 2) Add Technical Indicators
     ###########################################
