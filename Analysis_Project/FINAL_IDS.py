@@ -327,6 +327,8 @@ if options == 'Actual Tomorrow\'s Prediction':
     # Compute some sample technical indicators (SMA, RSI, MACD)
     import ta
     df['sma_14'] = ta.trend.SMAIndicator(close=df['close'], window=14).sma_indicator()
+    df['ema_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
+    df['ema_26'] = ta.trend.EMAIndicator(close=df['close'], window=26).ema_indicator()
     df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     macd = ta.trend.MACD(close=df['close'], window_slow=26, window_fast=12, window_sign=9)
     df['macd'] = macd.macd()
@@ -342,15 +344,15 @@ if options == 'Actual Tomorrow\'s Prediction':
     # Scale the features
     scaler = MinMaxScaler()
     # Ensure the feature set matches the model's input during training
-    scaled_data = scaler.fit_transform(df[['open', 'high', 'low', 'close', 'volume', 'sma_14', 'rsi_14']])
+    scaled_data = scaler.fit_transform(df[['close', 'sma_14', 'ema_12', 'ema_26', 'rsi_14', 'macd', 'macd_signal']])
 
 # Create sequences for LSTM
-    sequence_length = 30  # Use the past 60 days to predict the next day
+    sequence_length = 30  # Use the past 30 days to predict the next day
     X = []
     y = []
 
     for i in range(sequence_length, len(scaled_data)):
-        X.append(scaled_data[i-sequence_length:i])  # Past 60 days
+        X.append(scaled_data[i-sequence_length:i])  # Past 30 days
         y.append(scaled_data[i, 3])  # 'close' price as the target
 
     X = np.array(X)
