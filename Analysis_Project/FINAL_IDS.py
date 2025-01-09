@@ -333,9 +333,9 @@ if options == 'Actual Tomorrow\'s Prediction':
     ###########################################
     # Compute some sample technical indicators (SMA, RSI, MACD)
     try:
-    df['SMA_7'] = ta.trend.SMAIndicator(close=df['close'], window=7).sma_indicator()
+        df['SMA_7'] = ta.trend.SMAIndicator(close=df['close'], window=7).sma_indicator()
     except Exception as e:
-    print(f"Error: {e}")
+        print(f"Error: {e}")
 
 
     df['SMA_7'] = SMAIndicator(close=df['close'], window=7).sma_indicator()
