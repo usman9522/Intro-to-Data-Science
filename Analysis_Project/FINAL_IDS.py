@@ -336,15 +336,16 @@ if options == 'Actual Tomorrow\'s Prediction':
     ###########################################
     # Compute some sample technical indicators (SMA, RSI, MACD)
     import ta
-    df['sma_14'] = ta.trend.SMAIndicator(close=df['close'], window=14).sma_indicator()
-    df['ema_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
-    df['ema_26'] = ta.trend.EMAIndicator(close=df['close'], window=26).ema_indicator()
-    df['rsi_14'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
+    df['SMA_7'] = ta.trend.SMAIndicator(close=df['close'], window=7).sma_indicator()
+    df['EMA_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
+    df['EMA_26'] = ta.trend.EMAIndicator(close=df['close'], window=26).ema_indicator()
+    df['RSI'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
     macd = ta.trend.MACD(close=df['close'], window_slow=26, window_fast=12, window_sign=9)
-    df['macd'] = macd.macd()
-    df['macd_signal'] = macd.macd_signal()
+    df['MACD'] =  df['EMA_12'] - df['EMA_26']
+    df['Signal_Line'] = macd.btc_data['MACD'].rolling(window=9).mean()
     df['macd_diff'] = macd.macd_diff()
 
+    
     # Drop rows with NaN values resulting from indicator calculations
     df.dropna(inplace=True)
 
@@ -354,7 +355,7 @@ if options == 'Actual Tomorrow\'s Prediction':
     # Scale the features
     scaler = MinMaxScaler()
     # Ensure the feature set matches the model's input during training
-    scaled_data = scaler.fit_transform(df[['close', 'sma_14', 'ema_12', 'ema_26', 'rsi_14', 'macd', 'macd_signal']])
+    scaled_data = scaler.fit_transform(df[['close', 'SMA_7', 'EMA_12', 'EMA_26', 'RSI', 'MACD', 'Signal_Line']])
 
 # Create sequences for LSTM
     sequence_length = 30  # Use the past 30 days to predict the next day
