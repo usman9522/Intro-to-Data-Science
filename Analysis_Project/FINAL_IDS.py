@@ -105,7 +105,7 @@ if options == "Introduction":
    # st.write("This project aims to analyze Bitcoin's historical data and provide key insights into its price trends using statistical and technical tools.")
    # st.write("Various technical indicators like SMA, EMA, RSI, and Bollinger Bands are incorporated to understand market behavior.")
     image_path = os.path.join(os.path.dirname(__file__), "immm.jpg")
-    st.image("image_path", caption="BITCOIN", width=670)
+    st.image(image_path, caption="BITCOIN", width=670)
 
 if options == "Data Overview":
     st.header("Data Overview")
