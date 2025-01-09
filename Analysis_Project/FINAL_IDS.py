@@ -15,7 +15,6 @@ import datetime as dt
 import yfinance as yf
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import os
-import ta
 file_path = os.path.join(os.path.dirname(__file__), "BTC.csv")
 btc_data = pd.read_csv(file_path)
 # Load dataset
@@ -331,25 +330,24 @@ if options == 'Actual Tomorrow\'s Prediction':
     df['low'] = df['low'].squeeze()
     df['volume'] = df['volume'].squeeze()
 
- 
-
 
     ###########################################
     # 2) Add Technical Indicators
     ###########################################
     # Compute some sample technical indicators (SMA, RSI, MACD)
-    df['SMA_7'] = ta.trend.SMAIndicator(close=df['close'], window=7).sma_indicator()
-    df['EMA_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
-    df['EMA_26'] = ta.trend.EMAIndicator(close=df['close'], window=26).ema_indicator()
-    df['RSI'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
-    macd = ta.trend.MACD(clos=df['close'], window_slow=26, window_fast=12, window_sign=9)
+
+    df['SMA_7'] = SMAIndicator(close=df['close'], window=7).sma_indicator()
+    df['EMA_12'] = EMAIndicator(close=df['close'], window=12).ema_indicator()
+    df['EMA_26'] = EMAIndicator(close=df['close'], window=26).ema_indicator()
+    df['RSI'] = RSIIndicator(close=df['close'], window=14).rsi()
+    #macd = ta.trend.MACD(close=df['close'], window_slow=26, window_fast=12, window_sign=9)
     df['MACD'] =  df['EMA_12'] - df['EMA_26']
     df['Signal_Line'] = df['MACD'].rolling(window=9).mean()
-    df['macd_diff'] = macd.macd_diff()
+    #df['macd_diff'] = macd.macd_diff()
 
     
     # Drop rows with NaN values resulting from indicator calculations
-    df = df.dropna()
+    df.dropna(inplace=True)
 
     ###########################################
     # 3) Prepare the Data for LSTM
