@@ -325,10 +325,7 @@ if options == 'Actual Tomorrow\'s Prediction':
 
     # Ensure all columns are 1-dimensional
     df['close'] = df['close'].squeeze()
-    df['open'] = df['open'].squeeze()
-    df['high'] = df['high'].squeeze()
-    df['low'] = df['low'].squeeze()
-    df['volume'] = df['volume'].squeeze()
+    df['close'] = df['close'].values.flatten()
 
 
     ###########################################
