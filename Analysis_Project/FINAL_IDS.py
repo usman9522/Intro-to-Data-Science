@@ -104,7 +104,8 @@ if options == "Introduction":
     st.write("Bitcoin (BTC) has emerged as a revolutionary digital asset, transforming the global financial landscape with its decentralized nature and blockchain technology. As a highly volatile and widely traded cryptocurrency, analyzing its price trends, market behavior, and technical indicators is crucial for both investors and researchers. This project focuses on visualizing Bitcoin's historical price data, utilizing key indicators such as Simple Moving Average (SMA), Exponential Moving Average (EMA), and Bollinger Bands to uncover meaningful insights. By integrating interactive and insightful visualizations, this analysis aims to provide a comprehensive understanding of BTC's market dynamics. The project's ultimate goal is to assist in identifying trends, volatility patterns, and potential opportunities for informed decision-making in the ever-evolving cryptocurrency market.")
    # st.write("This project aims to analyze Bitcoin's historical data and provide key insights into its price trends using statistical and technical tools.")
    # st.write("Various technical indicators like SMA, EMA, RSI, and Bollinger Bands are incorporated to understand market behavior.")
-    st.image("immm.jpg", caption="BITCOIN", width=670)
+    image_path = os.path.join(os.path.dirname(__file__), "BTC.csv")
+    st.image("image_path", caption="BITCOIN", width=670)
 
 if options == "Data Overview":
     st.header("Data Overview")
