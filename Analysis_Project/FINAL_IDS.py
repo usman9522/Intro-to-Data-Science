@@ -331,25 +331,25 @@ if options == 'Actual Tomorrow\'s Prediction':
     df['low'] = df['low'].squeeze()
     df['volume'] = df['volume'].squeeze()
 
-    clos = df['close'].to_numpy()  # Or .tolist() or .values
+ 
 
 
     ###########################################
     # 2) Add Technical Indicators
     ###########################################
     # Compute some sample technical indicators (SMA, RSI, MACD)
-    df['SMA_7'] = ta.trend.SMAIndicator(clos=df['clos'], window=7).sma_indicator()
-    df['EMA_12'] = ta.trend.EMAIndicator(clos=df['clos'], window=12).ema_indicator()
-    df['EMA_26'] = ta.trend.EMAIndicator(clos=df['clos'], window=26).ema_indicator()
-    df['RSI'] = ta.momentum.RSIIndicator(clos=df['clos'], window=14).rsi()
-    macd = ta.trend.MACD(clos=df['clos'], window_slow=26, window_fast=12, window_sign=9)
+    df['SMA_7'] = ta.trend.SMAIndicator(close=df['close'], window=7).sma_indicator()
+    df['EMA_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
+    df['EMA_26'] = ta.trend.EMAIndicator(close=df['close'], window=26).ema_indicator()
+    df['RSI'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
+    macd = ta.trend.MACD(clos=df['close'], window_slow=26, window_fast=12, window_sign=9)
     df['MACD'] =  df['EMA_12'] - df['EMA_26']
     df['Signal_Line'] = df['MACD'].rolling(window=9).mean()
     df['macd_diff'] = macd.macd_diff()
 
     
     # Drop rows with NaN values resulting from indicator calculations
-    df.dropna(inplace=True)
+    df = df.dropna()
 
     ###########################################
     # 3) Prepare the Data for LSTM
