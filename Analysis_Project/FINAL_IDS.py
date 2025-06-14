@@ -58,31 +58,26 @@ train_size = int(len(X) * 0.8)
 X_train, X_test = X[:train_size], X[train_size:]
 y_train, y_test = y[:train_size], y[train_size:]
 
-# Build LSTM model
-if "model" not in st.session_state:
+# Check if model exists on disk or in session state
+if os.path.exists(MODEL_PATH) and "model" not in st.session_state:
+    st.session_state.model = load_model(MODEL_PATH)
+    st.success("Loaded pre-trained model from disk!")
+elif "model" not in st.session_state:
+    # Build and train the model
     model = Sequential()
     model.add(LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
     model.add(LSTM(units=50, return_sequences=False))
     model.add(Dense(units=25))
     model.add(Dense(units=1))
-
-# Compile the model
     model.compile(optimizer='adam', loss='mean_squared_error')
-    print(f"X_train shape: {X_train.shape}")
-    print(f"Model input shape: {model.input_shape}")
 
-
-# Train the model
     with st.spinner("Training the model. Please wait..."):
         model.fit(X_train, y_train, batch_size=32, epochs=20, verbose=1)
-        
+        model.save(MODEL_PATH)  # Save to disk
         st.session_state.model = model
-        st.success("Model trained and ready!")
+        st.success("Model trained and saved to disk!")
 else:
-    # Load the model from session state
     model = st.session_state.model
-    #st.info("Model loaded from session state.")
-
 # Make predictions
 y_pred = model.predict(X_test)
 y_pred = scaler.inverse_transform(y_pred)
