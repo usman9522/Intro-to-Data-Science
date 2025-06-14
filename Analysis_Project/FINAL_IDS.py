@@ -1,4 +1,4 @@
-import numpy as np # linear algebra
+import numpy as np
 import streamlit as st
 import pandas as pd 
 import seaborn as sns
@@ -6,89 +6,112 @@ from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator, EMAIndicator
 from ta.volatility import BollingerBands
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 import mplfinance as mpf
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.models import Sequential, load_model
+from tensorflow.keras.layers import LSTM, Dense
 import datetime as dt
 import yfinance as yf
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import ta
 import os
-file_path = os.path.join(os.path.dirname(__file__), "BTC.csv")
-btc_data = pd.read_csv(file_path)
-# Load dataset
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-btc_data['date'] = pd.to_datetime(btc_data['date'])
-btc_data.set_index('date', inplace=True)
+# --- Model Path Setup ---
+MODEL_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(MODEL_DIR, "btc_lstm_model.h5")
 
-# Add technical indicators
-btc_data['SMA_7'] = SMAIndicator(btc_data['close'], window=7).sma_indicator()
-btc_data['EMA_12'] = EMAIndicator(btc_data['close'], window=12).ema_indicator()
-btc_data['EMA_26'] = EMAIndicator(btc_data['close'], window=26).ema_indicator()
-btc_data['RSI'] = RSIIndicator(btc_data['close']).rsi()
-bbands = BollingerBands(btc_data['close'])
-btc_data['Bollinger_High'] = bbands.bollinger_hband()
-btc_data['Bollinger_Low'] = bbands.bollinger_lband()
+# --- Data Loading ---
+@st.cache_data
+def load_data():
+    file_path = os.path.join(MODEL_DIR, "BTC.csv")
+    btc_data = pd.read_csv(file_path)
+    btc_data['date'] = pd.to_datetime(btc_data['date'])
+    btc_data.set_index('date', inplace=True)
+    return btc_data
 
-# Recalculate MACD and Signal Line
-btc_data['MACD'] = btc_data['EMA_12'] - btc_data['EMA_26']
-btc_data['Signal_Line'] = btc_data['MACD'].rolling(window=9).mean()
-btc_data['MACD_Histogram'] = btc_data['MACD'] - btc_data['Signal_Line']
+btc_data = load_data()
 
-# Drop rows with NaN values due to indicator calculations
-btc_data = btc_data.dropna()
+# --- Technical Indicators ---
+def add_indicators(df):
+    df['SMA_7'] = SMAIndicator(df['close'], window=7).sma_indicator()
+    df['EMA_12'] = EMAIndicator(df['close'], window=12).ema_indicator()
+    df['EMA_26'] = EMAIndicator(df['close'], window=26).ema_indicator()
+    df['RSI'] = RSIIndicator(df['close']).rsi()
+    bbands = BollingerBands(df['close'])
+    df['Bollinger_High'] = bbands.bollinger_hband()
+    df['Bollinger_Low'] = bbands.bollinger_lband()
+    df['MACD'] = df['EMA_12'] - df['EMA_26']
+    df['Signal_Line'] = df['MACD'].rolling(window=9).mean()
+    df['MACD_Histogram'] = df['MACD'] - df['Signal_Line']
+    return df.dropna()
 
-## MACHINE LEArNING
+btc_data = add_indicators(btc_data)
+
+# --- Prepare Data for 3-Day Prediction ---
 features = ['close', 'SMA_7', 'EMA_12', 'EMA_26', 'RSI', 'MACD', 'Signal_Line']
 target = 'close'
+forecast_horizon = 3  # Predict 3 days ahead
+
+# Shift target for 3-day prediction
+btc_data['target_close'] = btc_data[target].shift(-forecast_horizon)
+btc_data = btc_data.dropna()
+
+# Scale data
 scaler = MinMaxScaler()
 scaled_data = scaler.fit_transform(btc_data[features])
-scaled_target = scaler.fit_transform(btc_data[[target]])
+scaled_target = scaler.fit_transform(btc_data[['target_close']])
 
+# Create sequences
+window_size = 30
 X, y = [], []
-window_size = 30  # Use the past 30 days for predictions
 for i in range(window_size, len(scaled_data)):
     X.append(scaled_data[i-window_size:i])
     y.append(scaled_target[i])
 X, y = np.array(X), np.array(y)
 
-# Split data into training and testing sets
+# Split data
 train_size = int(len(X) * 0.8)
 X_train, X_test = X[:train_size], X[train_size:]
 y_train, y_test = y[:train_size], y[train_size:]
 
-# Check if model exists on disk or in session state
-if os.path.exists(MODEL_PATH) and "model" not in st.session_state:
-    st.session_state.model = load_model(MODEL_PATH)
-    st.success("Loaded pre-trained model from disk!")
-elif "model" not in st.session_state:
-    # Build and train the model
-    model = Sequential()
-    model.add(LSTM(units=50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
-    model.add(LSTM(units=50, return_sequences=False))
-    model.add(Dense(units=25))
-    model.add(Dense(units=1))
+# --- Model Setup ---
+def create_model():
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])),
+        LSTM(50),
+        Dense(25),
+        Dense(1)
+    ])
     model.compile(optimizer='adam', loss='mean_squared_error')
+    return model
 
-    with st.spinner("Training the model. Please wait..."):
-        model.fit(X_train, y_train, batch_size=32, epochs=20, verbose=1)
-        model.save(MODEL_PATH)  # Save to disk
+if os.path.exists(MODEL_PATH):
+    try:
+        model = load_model(MODEL_PATH)
         st.session_state.model = model
-        st.success("Model trained and saved to disk!")
+        st.success("Loaded pre-trained model")
+    except Exception as e:
+        st.error(f"Model loading failed: {e}")
+        model = create_model()
 else:
-    model = st.session_state.model
-# Make predictions
+    model = create_model()
+
+if "model" not in st.session_state:
+    with st.spinner("Training model..."):
+        model.fit(X_train, y_train, batch_size=32, epochs=20, verbose=0)
+        model.save(MODEL_PATH)
+        st.session_state.model = model
+        st.success("Model trained and saved")
+
+model = st.session_state.model
+
+# --- Predictions ---
 y_pred = model.predict(X_test)
 y_pred = scaler.inverse_transform(y_pred)
 y_test = scaler.inverse_transform(y_test)
-
-# Calculate accuracy percentage
 accuracy = 100 - np.mean(np.abs((y_test - y_pred) / y_test)) * 100
 
-
-
-# Streamlit App
+# --- Streamlit App ---
 st.title("Bitcoin Price Analysis and Insights")
 
 st.sidebar.header("Sections")
@@ -97,8 +120,6 @@ options = st.sidebar.radio("Sections", ["Introduction", "Data Overview", "EDA", 
 if options == "Introduction":
     st.header("Introduction")
     st.write("Bitcoin (BTC) has emerged as a revolutionary digital asset, transforming the global financial landscape with its decentralized nature and blockchain technology. As a highly volatile and widely traded cryptocurrency, analyzing its price trends, market behavior, and technical indicators is crucial for both investors and researchers. This project focuses on visualizing Bitcoin's historical price data, utilizing key indicators such as Simple Moving Average (SMA), Exponential Moving Average (EMA), and Bollinger Bands to uncover meaningful insights. By integrating interactive and insightful visualizations, this analysis aims to provide a comprehensive understanding of BTC's market dynamics. The project's ultimate goal is to assist in identifying trends, volatility patterns, and potential opportunities for informed decision-making in the ever-evolving cryptocurrency market.")
-   # st.write("This project aims to analyze Bitcoin's historical data and provide key insights into its price trends using statistical and technical tools.")
-   # st.write("Various technical indicators like SMA, EMA, RSI, and Bollinger Bands are incorporated to understand market behavior.")
     image_path = os.path.join(os.path.dirname(__file__), "immm.jpg")
     st.image(image_path, caption="BITCOIN", width=670)
 
@@ -122,24 +143,16 @@ if options == "Data Overview":
     total_rows = len(btc_data)
     st.write(f"Total number of rows in the dataset:   {total_rows}")
 
- 
-    numerical_columns = ['open', 'high', 'low', 'close' , 'SMA_7', 'EMA_12' , 'EMA_26' , 'RSI' , 'Bollinger_High' , 'bollinger_Low' ]
+    numerical_columns = ['open', 'high', 'low', 'close', 'SMA_7', 'EMA_12', 'EMA_26', 'RSI', 'Bollinger_High', 'Bollinger_Low']
     summary_stats = btc_data.describe()
-    #summary_stats.columns = ['Min', 'Max', 'Average', 'Count']
     st.write(summary_stats)
     
     st.write("### First Few Rows of the Dataset")
     st.write(btc_data.head(10))
-    
-    
 
 if options == "EDA":
     st.header("Exploratory Data Analysis")
-      # Visual 2: Overlay Trend Zones
-      
-      
     
-    # Visual 1: Closing Price Over Time
     st.write("### Closing Price Over Time")
     plt.figure(figsize=(12, 6))
     plt.plot(btc_data['close'], label='Close Price', color='blue')
@@ -148,10 +161,7 @@ if options == "EDA":
     plt.ylabel('Close Price (USD)')
     plt.legend()
     st.pyplot(plt)
-    st.write("**Explanation:**")
-    st.write("This graph is simply representing btc price over time for the last 15 years since its creation. ")
-    st.write()
-
+    st.write("**Explanation:** This graph shows BTC price over time for the last 15 years since its creation.")
 
     st.write("### Overlay Trend Zones")
     btc_data['Trend'] = np.where(btc_data['close'] > btc_data['EMA_12'], 'Bullish', 'Bearish')
@@ -166,20 +176,11 @@ if options == "EDA":
     plt.ylabel('Price (USD)')
     plt.legend()
     st.pyplot(plt)
-    st.write("**Explanation:**")
-    st.write("This chart illustrates Bitcoin's price movement over time, with overlays of the 12-day EMA and 26-day EMA to highlight trends. The chart also includes shaded regions to differentiate bullish and bearish zones, providing a clear visual representation of market trends and momentum shifts.")
-    st.write()
-    # Assuming 'btc_data' is your DataFrame with the necessary columns
-    # Ensure columns: 'date', 'open', 'high', 'low', 'close'
+    st.write("**Explanation:** This chart illustrates Bitcoin's price movement with EMAs and trend zones.")
 
     st.write("### Candlestick Chart with SMA & EMA")
-
-    # Filter last year's data
     last_year_data = btc_data.loc[btc_data.index >= (btc_data.index.max() - pd.DateOffset(months=6))]
-    mpf_data = last_year_data.reset_index()
-    mpf_data.set_index('date', inplace=True)
-
-    # Create mplfinance candlestick chart as a Matplotlib Figure
+    mpf_data = last_year_data[['open', 'high', 'low', 'close', 'volume']]
     fig, ax = mpf.plot(
         mpf_data,
         type='candle',
@@ -187,15 +188,11 @@ if options == "EDA":
         volume=False,
         title='Candlestick Chart with SMA & EMA',
         style='yahoo',
-        returnfig=True  # Return the figure object
+        returnfig=True
     )
-
-    # Display the plot in Streamlit
     st.pyplot(fig)
-    st.write("**Explanation:**")
-    st.write("This candlestick chart visualizes Bitcoin's price movements over the last six months, overlaid with the Simple Moving Average (SMA) and Exponential Moving Averages (EMA) for trend analysis. The SMA and EMA lines provide insight into short- and long-term price trends, helping to identify potential buy and sell signals.This candlestick chart visualizes Bitcoin's price movements over a specific period, overlaid with the Simple Moving Average (SMA) and Exponential Moving Averages (EMA) for trend analysis. The SMA and EMA lines provide insight into short- and long-term price trends, helping to identify potential buy and sell signals.")
-    st.write()
-    
+    st.write("**Explanation:** Candlestick chart with moving averages for trend analysis.")
+
     st.write("### Histogram for MACD with Closing Price")
     plt.figure(figsize=(12, 6))
     plt.plot(last_year_data['MACD'], label='MACD Line', color='blue')
@@ -206,12 +203,8 @@ if options == "EDA":
     plt.ylabel('Value')
     plt.legend()
     st.pyplot(plt)
-    st.write("**Explanation:**")
-    st.write("This chart illustrates the MACD (Moving Average Convergence Divergence) indicator with its components: the MACD Line, Signal Line, and Histogram. The MACD Line represents momentum by showing the difference between two EMAs, while the Signal Line acts as a smoother trend indicator. The histogram highlights the divergence between the MACD and Signal Lines, aiding in identifying potential buy and sell signals based on crossovers and the momentum of price changes.")
-    st.write()
+    st.write("**Explanation:** MACD indicator showing momentum and trend signals.")
 
-
-    # Visual 2: Distribution of Closing Prices
     st.write("### Distribution of Closing Prices")
     plt.figure(figsize=(10, 6))
     sns.histplot(btc_data['close'], bins=50, kde=True, color='blue')
@@ -219,11 +212,7 @@ if options == "EDA":
     plt.xlabel('Price (USD)')
     plt.ylabel('Frequency')
     st.pyplot(plt)
-    st.write("**Explanation:**")
-    st.write("This histogram shows the distribution of Bitcoin's closing prices, with most values concentrated in the lower range and fewer instances at higher prices, reflecting its historical volatility. ")
-    st.write()
 
-    # Visual 3: Monthly Average Prices
     st.write("### Monthly Average Prices")
     btc_data['month'] = btc_data.index.month
     monthly_avg = btc_data.groupby('month')['close'].mean()
@@ -233,11 +222,7 @@ if options == "EDA":
     plt.xlabel('Month')
     plt.ylabel('Average Price (USD)')
     st.pyplot(plt)
-    st.write("**Explanation:**")
-    st.write("This bar chart displays the average Bitcoin prices by month, highlighting seasonal trends and variations in price levels throughout the year. ")
-    st.write()
 
-    # Visual 4: Correlation Heatmap
     st.write("### Correlation Between Features")
     numeric_data = btc_data.select_dtypes(include=['number'])
     corr = numeric_data.corr()
@@ -245,10 +230,7 @@ if options == "EDA":
     sns.heatmap(corr, annot=True, cmap='coolwarm', fmt='.2f')
     plt.title('Feature Correlation Heatmap')
     st.pyplot(plt)
-    st.write("**Explanation:**")
-    st.write("This represents the linear relationship between features. ")
-    st.write()
-    
+
 if options == "ML Model":
     st.header("LSTM Model for Bitcoin Price Prediction")
 
@@ -266,15 +248,11 @@ if options == "ML Model":
     st.write(pd.DataFrame([metrics], index=["Metrics"]))
 
     st.write("### Actual vs Predicted Prices")
-
-    # Create a DataFrame with dates, actual, and predicted prices
     results_df = pd.DataFrame({
-        "Date": btc_data.index[-len(y_test):][:10],  # Get the last `len(y_test)` dates, limit to 10 rows
+        "Date": btc_data.index[-len(y_test):][:10],
         "Actual": y_test.flatten()[:10],
         "Predicted": y_pred.flatten()[:10] 
     })
-
-    # Display the DataFrame
     st.write(results_df)
 
     st.write("### Test vs Prediction Plot")
@@ -287,137 +265,47 @@ if options == "ML Model":
     plt.legend()
     st.pyplot(plt)
 
-   
-
 if options == 'Actual Tomorrow\'s Prediction':
-      
-    ###########################################
-    # 1) Download BTC Data from Yahoo Finance
-    ###########################################
-    # Define the start and end date for data extraction
-    start_date = "2017-01-01"
-    end_date = dt.datetime.today().strftime('%Y-%m-%d')
-
-    # Download BTC-USD data
-    df = yf.download("BTC-USD", start=start_date, end=end_date, interval='1d')
-    df.dropna(inplace=True)
-
-    # Clean and rename columns
-    df.reset_index(inplace=True)
-    df.rename(columns={
-        'Date': 'timestamp',
-        'Open': 'open',
-        'High': 'high',
-        'Low': 'low',
-        'Close': 'close',
-        'Volume': 'volume'
-    }, inplace=True)
-
-    # Re-order and sort
-    df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
-    df.sort_values('timestamp', inplace=True)
-    df.reset_index(drop=True, inplace=True)
-
-    # Ensure all columns are 1-dimensional
-    df['close'] = df['close'].squeeze()
-    df['close'] = df['close'].values.flatten()
-
-
-    ###########################################
-    # 2) Add Technical Indicators
-    ###########################################
-    # Compute some sample technical indicators (SMA, RSI, MACD)
-    try:
-        df['SMA_7'] = ta.trend.SMAIndicator(close=df['close'], window=7).sma_indicator()
-    except Exception as e:
-        print(f"Error: {e}")
-
-
-    df['SMA_7'] = SMAIndicator(close=df['close'], window=7).sma_indicator()
-    df['EMA_12'] = EMAIndicator(close=df['close'], window=12).ema_indicator()
-    df['EMA_26'] = EMAIndicator(close=df['close'], window=26).ema_indicator()
-    df['RSI'] = RSIIndicator(close=df['close'], window=14).rsi()
-    #macd = ta.trend.MACD(close=df['close'], window_slow=26, window_fast=12, window_sign=9)
-    df['MACD'] =  df['EMA_12'] - df['EMA_26']
-    df['Signal_Line'] = df['MACD'].rolling(window=9).mean()
-    #df['macd_diff'] = macd.macd_diff()
-
+    st.header("3-Day Bitcoin Price Prediction")
     
-    # Drop rows with NaN values resulting from indicator calculations
-    df.dropna(inplace=True)
-
-    ###########################################
-    # 3) Prepare the Data for LSTM
-    ###########################################
-    # Scale the features
-    scaler = MinMaxScaler()
-    # Ensure the feature set matches the model's input during training
-    scaled_data = scaler.fit_transform(df[['close', 'SMA_7', 'EMA_12', 'EMA_26', 'RSI', 'MACD', 'Signal_Line']])
-
-# Create sequences for LSTM
-    sequence_length = 30  # Use the past 30 days to predict the next day
-    X = []
-    y = []
-
-    for i in range(sequence_length, len(scaled_data)):
-        X.append(scaled_data[i-sequence_length:i])  # Past 30 days
-        y.append(scaled_data[i, 3])  # 'close' price as the target
-
-    X = np.array(X)
-    y = np.array(y)
-
-# Train-test split
-    train_size = int(0.8 * len(X))
-    X_train, X_test = X[:train_size], X[train_size:]
-    y_train, y_test = y[:train_size], y[train_size:]
-
-###########################################
-# Update the last_sequence for prediction
-###########################################
-    last_sequence = scaled_data[-sequence_length:]  # Last 60 days
-    last_sequence = np.expand_dims(last_sequence, axis=0)  # Add batch dimension
-
-# Validate the shape of last_sequence
-    assert last_sequence.shape == (1, sequence_length, X_train.shape[2]), \
-        f"Shape mismatch: last_sequence {last_sequence.shape}, expected (1, {sequence_length}, {X_train.shape[2]})"
-
-# Predict the next day's scaled price
-    next_day_scaled = model.predict(last_sequence)
-    next_day_price = scaler.inverse_transform([[0, 0, 0, next_day_scaled[0][0], 0, 0, 0]])[0][3]
-
-
-    # Determine the next day's date
-    last_date = df['timestamp'].max()
-    next_date = last_date + pd.Timedelta(days=1)
-
-    # Compare with today's price
-    today_price = df.iloc[-1]['close']
-    price_change = "higher" if next_day_price > today_price else "lower"
-    price_change_color = "green" if next_day_price > today_price else "red"
-
-    st.write(f"### Predicted Closing Price for {next_date.strftime('%Y-%m-%d')}:")
-    st.write(f"**${next_day_price:.2f}**")
-    st.markdown(f"<span style='color:{price_change_color};font-size:18px'>The predicted price is {price_change} than today's closing price (${today_price:.2f}).</span>", unsafe_allow_html=True)
-
-    ###########################################
-    # 6) Visualization
-    ###########################################
+    # Get fresh data
+    end_date = dt.datetime.today()
+    start_date = end_date - dt.timedelta(days=365)  # 1 year history
+    new_data = yf.download("BTC-USD", start=start_date, end=end_date)
+    new_data = new_data.rename(columns={
+        'Open': 'open', 'High': 'high', 'Low': 'low', 
+        'Close': 'close', 'Volume': 'volume'
+    })
+    
+    # Add indicators
+    new_data = add_indicators(new_data)
+    
+    # Prepare prediction input
+    latest_data = new_data[features].tail(window_size)
+    scaled_latest = scaler.transform(latest_data)
+    sequence = np.expand_dims(scaled_latest, axis=0)
+    
+    # Make 3-day prediction
+    scaled_pred = model.predict(sequence)
+    pred_price = scaler.inverse_transform([[0, 0, 0, scaled_pred[0][0], 0, 0, 0]])[0][3]
+    pred_date = end_date + dt.timedelta(days=forecast_horizon)
+    
+    # Display results
+    st.write(f"### Predicted Closing Price for {pred_date.strftime('%Y-%m-%d')}:")
+    st.write(f"**${pred_price:.2f}**")
+    
+    # Visualization
     plt.figure(figsize=(12, 6))
-    plt.plot(df['timestamp'], df['close'], label='Historical Close Prices', color='blue')
-    plt.axvline(x=last_date, color='black', linestyle='--', label='Last Known Date')
-    plt.scatter(next_date, next_day_price, color=price_change_color, label='Next Day Prediction')
-    plt.xlabel('Date')
-    plt.ylabel('BTC Price (USD)')
-    plt.title('Next Day Price Prediction with LSTM')
+    plt.plot(new_data.index, new_data['close'], label='Historical Prices')
+    plt.axvline(x=end_date, color='red', linestyle='--', label='Today')
+    plt.scatter(pred_date, pred_price, color='green', label=f'{forecast_horizon}-Day Prediction')
+    plt.title(f'Bitcoin {forecast_horizon}-Day Price Prediction')
     plt.legend()
     st.pyplot(plt)
 
-        
-
-
 if options == "Conclusion":
     st.header("Conclusion")
-    st.write("This analysis highlights Bitcoin's price trends and the utility of technical indicators in understanding market behavior.This project provided an in-depth analysis of Bitcoin price trends, leveraging statistical tools and machine learning techniques. The combination of technical indicators and the LSTM model demonstrated the potential of data-driven approaches in understanding and predicting market behavior.")
+    st.write("This analysis highlights Bitcoin's price trends and the utility of technical indicators in understanding market behavior. The combination of technical indicators and the LSTM model demonstrated the potential of data-driven approaches in understanding and predicting market behavior.")
     st.write("The ability to forecast Bitcoin prices with accuracy can empower traders and investors to make informed decisions, potentially mitigating risks and maximizing returns in a volatile market.")
     st.write("Future work could explore incorporating external factors, such as market sentiment or macroeconomic indicators, into the model. Additionally, fine-tuning hyperparameters and leveraging advanced machine learning architectures could further enhance prediction accuracy.")
 
