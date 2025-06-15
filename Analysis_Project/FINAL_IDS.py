@@ -14,6 +14,16 @@ import datetime as dt
 import requests  # Changed from yfinance to requests for CoinGecko
 import ta
 import os
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, accuracy_score
+
+import re
+import string
+import nltk
+import joblib
+from nltk.corpus import stopwords
 from tensorflow.keras.losses import MeanSquaredError
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
@@ -24,6 +34,67 @@ MODEL_PATH = os.path.join(MODEL_DIR, "btc_lstm_model.h5")
 WINDOW_SIZE = 30
 FEATURES = ['close', 'SMA_7', 'EMA_12', 'EMA_26', 'RSI', 'MACD', 'Signal_Line']
 FORECAST_HORIZON = 3  # Predict 3 days ahead
+
+
+# Download NLTK stopwords
+nltk.download('stopwords')
+stop_words = set(stopwords.words('english'))
+
+# Load your dataset
+df = pd.read_csv(r"C:\Users\ZA-Computer\Downloads\tweets.csv")
+
+
+# Keep only Tweet and Sentiment columns
+df = df[['Tweet', 'Sentiment']]
+
+# Clean Sentiment values: convert from string list like "['positive']" to "positive"
+df['Sentiment'] = df['Sentiment'].str.replace(r"\[|\]|'", "", regex=True)
+
+# Function to clean text
+def preprocess_text(text):
+    text = text.lower()
+    text = re.sub(r'http\S+|www\S+|https\S+', '', text)
+    text = re.sub(r'@\w+|#', '', text)
+    text = re.sub(r'\d+', '', text)
+    text = text.translate(str.maketrans('', '', string.punctuation))
+    tokens = text.split()
+    tokens = [word for word in tokens if word not in stop_words]
+    return ' '.join(tokens)
+
+# Apply preprocessing
+df['Clean_Tweet'] = df['Tweet'].astype(str).apply(preprocess_text)
+
+# Split data
+X = df['Clean_Tweet']
+y = df['Sentiment']
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# TF-IDF Vectorization
+vectorizer = TfidfVectorizer(max_features=3000)
+X_train_vec = vectorizer.fit_transform(X_train)
+X_test_vec = vectorizer.transform(X_test)
+
+# Initialize Random Forest Classifier
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42)
+
+# Train model
+rf_model.fit(X_train_vec, y_train)
+
+# Evaluate model
+y_pred = rf_model.predict(X_test_vec)
+print("\nRandom Forest Classification Report:\n")
+print(classification_report(y_test, y_pred))
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Accuracy: {accuracy:.4f}")
+
+# Save the trained Random Forest model
+joblib.dump(rf_model, 'random_forest_sentiment_model.pkl')
+
+# Save the fitted vectorizer too (important for future use)
+joblib.dump(vectorizer, 'tfidf_vectorizer.pkl')
+
+print("\nModel and vectorizer saved successfully.")
 
 # --- Data Loading Functions ---
 @st.cache_data
@@ -156,7 +227,7 @@ st.title("Bitcoin Price Analysis and Insights")
 st.sidebar.header("Sections")
 options = st.sidebar.radio("Navigation", 
                           ["Introduction", "Data Overview", "EDA", 
-                           "ML Model", "3-Day Prediction", "Conclusion"])
+                           "ML Model", "Sentimental Analysis","3-Day Prediction", "Conclusion"])
 
 if options == "Introduction":
     st.header("Introduction")
@@ -230,6 +301,54 @@ elif options == "ML Model":
     ax.set_title('Actual vs Predicted Prices')
     ax.legend()
     st.pyplot(fig)
+
+elif options == "Sentimental Analysis":
+    st.header("Live Sentiment Analysis from Twitter")
+
+    import tweepy
+
+    # --- Twitter API Setup ---
+    bearer_token = "AAAAAAAAAAAAAAAAAAAAAJX42QEAAAAAGR4bwYAWqW6ccLrNx0hBualRvvk%3DIcysfJ8jMibYCIKkR0CttV5P2pliZ2IB9v8pp3TVXmvFmNDPjx"
+
+    client = tweepy.Client(bearer_token=bearer_token)
+
+    query = "Bitcoin -is:retweet lang:en"  # change as you like
+    max_results = 30
+
+    try:
+        response = client.search_recent_tweets(query=query, max_results=max_results, tweet_fields=['created_at'])
+        tweets = [tweet.text for tweet in response.data]
+        st.write(f"Fetched {len(tweets)} recent tweets about Bitcoin.")
+
+        if not tweets:
+            st.warning("No tweets fetched.")
+            st.stop()
+
+        # Load saved sentiment model and vectorizer
+        rf_model = joblib.load('random_forest_sentiment_model.pkl')
+        vectorizer = joblib.load('tfidf_vectorizer.pkl')
+
+        # Preprocess and predict
+        clean_tweets = [preprocess_text(tweet) for tweet in tweets]
+        tweet_vectors = vectorizer.transform(clean_tweets)
+        predictions = rf_model.predict(tweet_vectors)
+
+        # Show tweet with sentiment
+        result_df = pd.DataFrame({
+            'Tweet': tweets,
+            'Cleaned': clean_tweets,
+            'Sentiment': predictions
+        })
+
+        st.dataframe(result_df)
+
+        # Majority vote
+        majority_sentiment = result_df['Sentiment'].value_counts().idxmax()
+        st.success(f"📊 Majority Sentiment: **{majority_sentiment.upper()}**")
+
+    except Exception as e:
+        st.error(f"Twitter API error: {str(e)}")
+
 
 elif options == "3-Day Prediction":
     st.header("3-Day Price Prediction")
